@@ -1850,6 +1850,10 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 	unsigned long start = 0;
 	unsigned long end = 0;
 	struct reclaim_param rp;
+<<<<<<< HEAD
+=======
+	int err = 0;
+>>>>>>> 303f9166bfeb (zram: remove LRU writeback)
 
 	memset(buffer, 0, sizeof(buffer));
 	if (count > sizeof(buffer) - 1)
