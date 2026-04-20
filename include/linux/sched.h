@@ -1375,7 +1375,6 @@ struct task_struct {
 	 * New fields for task_struct should be added above here, so that
 	 * they are included in the randomized portion of task_struct.
 	 */
-#ifdef CONFIG_KSU_SUSFS
 	u64 susfs_task_state;
 	u64 susfs_last_fake_mnt_id;
 #endif
@@ -1612,9 +1611,6 @@ static __always_inline bool is_percpu_thread(void)
 #ifdef CONFIG_SMP
 	return (current->flags & PF_NO_SETAFFINITY) &&
 		(current->nr_cpus_allowed  == 1);
-#else
-	return true;
-#endif
 }
 
 /* Per-process atomic flags. */

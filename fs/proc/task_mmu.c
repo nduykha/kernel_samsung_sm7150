@@ -23,9 +23,6 @@
 #include <linux/ctype.h>
 #include <linux/io_record.h>
 #include <linux/pkeys.h>
-#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)
-#include <linux/susfs_def.h>
-#endif
 
 #include <asm/elf.h>
 #include <asm/tlb.h>
@@ -37,12 +34,8 @@
 #include "../../drivers/block/zram/zram_drv.h"
 #endif
 
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 extern void susfs_show_map_vma_spoofer(struct inode *inode, dev_t *out_dev, unsigned long *out_ino);
 #endif
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-extern int susfs_open_redirect_spoof_show_map_vma(struct inode *inode, unsigned long *out_ino, dev_t *out_dev, char *spoofed_name);
-#endif // #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 
 #define SEQ_PUT_DEC(str, val) \
 		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
@@ -148,14 +141,6 @@ static void release_task_mempolicy(struct proc_maps_private *priv)
 {
 	mpol_put(priv->task_mempolicy);
 }
-#else
-static void hold_task_mempolicy(struct proc_maps_private *priv)
-{
-}
-static void release_task_mempolicy(struct proc_maps_private *priv)
-{
-}
-#endif
 
 static void seq_print_vma_name(struct seq_file *m, struct vm_area_struct *vma)
 {
@@ -387,50 +372,13 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
 	unsigned long start, end;
 	dev_t dev = 0;
 	const char *name = NULL;
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 	char *spoofed_redirected_name = NULL;
-#endif // #ifdef CONFIG_KSU_SUSFS_OPEN_REDIREC
 
-	if (file) {
-		struct inode *inode = file_inode(vma->vm_file);
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-		if (SUSFS_IS_INODE_OPEN_REDIRECT(inode)) {
-			if (!susfs_open_redirect_spoof_show_map_vma(inode, &ino, &dev, spoofed_redirected_name)) {
-				pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
-				goto orig_flow;
-			}
-		}
-#endif // #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-		if (SUSFS_IS_INODE_SUS_MAP(inode)) {
-			seq_setwidth(m, 25 + sizeof(void *) * 6 - 1);
-			seq_put_hex_ll(m, NULL, vma->vm_start, 8);
-			seq_put_hex_ll(m, "-", vma->vm_end, 8);
-			seq_putc(m, ' ');
-			seq_putc(m, '-');
-			seq_putc(m, '-');
-			seq_putc(m, '-');
-			seq_putc(m, 'p');
-			seq_put_hex_ll(m, " ", pgoff, 8);
-			seq_put_hex_ll(m, " ", MAJOR(dev), 2);
-			seq_put_hex_ll(m, ":", MINOR(dev), 2);
-			seq_put_decimal_ull(m, " ", ino);
-			seq_putc(m, ' ');
-			goto done;
-		}
-#endif
 		dev = inode->i_sb->s_dev;
 		ino = inode->i_ino;
 		pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-		susfs_show_map_vma_spoofer(inode, &dev, &ino);
-#endif
 	}
 
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-orig_flow:
-#endif // #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 
 	start = vma->vm_start;
 	end = vma->vm_end;
@@ -441,15 +389,6 @@ orig_flow:
 	 * special [heap] marker for the heap:
 	 */
 
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-	if (spoofed_redirected_name) {
-		seq_pad(m, ' ');
-		seq_puts(m, spoofed_redirected_name);
-		seq_putc(m, '\n');
-		kfree(spoofed_redirected_name);
-		return;
-	}
-#endif // #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 	if (file) {
 		seq_pad(m, ' ');
 		seq_file_path(m, file, "\n");
@@ -730,12 +669,6 @@ static void smaps_pmd_entry(pmd_t *pmd, unsigned long addr,
 		VM_BUG_ON_PAGE(1, page);
 	smaps_account(mss, page, true, pmd_young(*pmd), pmd_dirty(*pmd), locked);
 }
-#else
-static void smaps_pmd_entry(pmd_t *pmd, unsigned long addr,
-		struct mm_walk *walk)
-{
-}
-#endif
 
 static int smaps_pte_range(pmd_t *pmd, unsigned long addr, unsigned long end,
 			   struct mm_walk *walk)
@@ -961,7 +894,6 @@ static int show_smap(struct seq_file *m, void *v)
 
 	memset(&mss, 0, sizeof(mss));
 
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
 	if (vma->vm_file) {
 		struct inode *inode = file_inode(vma->vm_file);
 		if (SUSFS_IS_INODE_SUS_MAP(inode)) {
@@ -978,31 +910,6 @@ static int show_smap(struct seq_file *m, void *v)
 			goto bypass_orig_flow;
 		}
 	}
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
-
-	smap_gather_stats(vma, &mss);
-
-	show_map_vma(m, vma);
-	if (vma_get_anon_name(vma)) {
-		seq_puts(m, "Name:           ");
-		seq_print_vma_name(m, vma);
-		seq_putc(m, '\n');
-	}
-
-	SEQ_PUT_DEC("Size:           ", vma->vm_end - vma->vm_start);
-	SEQ_PUT_DEC(" kB\nKernelPageSize: ", vma_kernel_pagesize(vma));
-	SEQ_PUT_DEC(" kB\nMMUPageSize:    ", vma_mmu_pagesize(vma));
-	seq_puts(m, " kB\n");
-
-	__show_smap(m, &mss, false);
-
-	if (arch_pkeys_enabled())
-		seq_printf(m, "ProtectionKey:  %8u\n", vma_pkey(vma));
-	show_smap_vma_flags(m, vma);
-
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-bypass_orig_flow:
-#endif
 	m_cache_vma(m, vma);
 	
 	return 0;
@@ -1033,19 +940,7 @@ static int show_smaps_rollup(struct seq_file *m, void *v)
 	hold_task_mempolicy(priv);
 
 	for (vma = priv->mm->mmap; vma; vma = vma->vm_next) {
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-		if (vma->vm_file) {
-			struct inode *inode = file_inode(vma->vm_file);
-			if (SUSFS_IS_INODE_SUS_MAP(inode)) {
-				memset(&mss, 0, sizeof(mss));
-				goto bypass_orig_flow;
-			}
-		}
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 		smap_gather_stats(vma, &mss);
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-bypass_orig_flow:
-#endif
 		last_vma_end = vma->vm_end;
 	}
 
@@ -1170,12 +1065,6 @@ static inline void clear_soft_dirty(struct vm_area_struct *vma,
 		set_pte_at(vma->vm_mm, addr, pte, ptent);
 	}
 }
-#else
-static inline void clear_soft_dirty(struct vm_area_struct *vma,
-		unsigned long addr, pte_t *pte)
-{
-}
-#endif
 
 #if defined(CONFIG_MEM_SOFT_DIRTY) && defined(CONFIG_TRANSPARENT_HUGEPAGE)
 static inline void clear_soft_dirty_pmd(struct vm_area_struct *vma,
@@ -1691,7 +1580,6 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
 	unsigned long start_vaddr;
 	unsigned long end_vaddr;
 	int ret = 0, copied = 0;
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
 	struct vm_area_struct *vma;
 #endif
 
@@ -1751,14 +1639,6 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
 			end = end_vaddr;
 		down_read(&mm->mmap_sem);
 		ret = walk_page_range(start_vaddr, end, &pagemap_walk);
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-		vma = find_vma(mm, start_vaddr);
-		if (vma && vma->vm_file) {
-			struct inode *inode = file_inode(vma->vm_file);
-			if (SUSFS_IS_INODE_SUS_MAP(inode))
-				pm.buffer->pme = 0;
-		}
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 		up_read(&mm->mmap_sem);
 		start_vaddr = end;
 
@@ -1816,32 +1696,6 @@ static inline bool is_pm_freezing(void)
 {
 	return pm_freezing;
 }
-#else
-static inline bool is_pm_freezing(void)
-{
-	return false;
-}
-#endif /* CONFIG_FREEZING */
-
-#ifdef CONFIG_PROCESS_RECLAIM
-static int reclaim_pte_range(pmd_t *pmd, unsigned long addr,
-				unsigned long end, struct mm_walk *walk)
-{
-	struct reclaim_param *rp = walk->private;
-	struct vm_area_struct *vma = rp->vma;
-	pte_t *pte, ptent;
-	spinlock_t *ptl;
-	struct page *page;
-	LIST_HEAD(page_list);
-	int isolated;
-	int reclaimed;
-
-#ifdef CONFIG_ZRAM_LRU_WRITEBACK
-	bool is_lru_wb = false;
-
-	if (!strcmp("PerProcessNands", current->comm))
-		is_lru_wb = true;
-#endif
 
 	split_huge_pmd(vma, addr, pmd);
 	if (pmd_trans_unstable(pmd) || !rp->nr_to_reclaim)
