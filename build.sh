@@ -30,6 +30,7 @@ CONFIG_LTO_CLANG=y
     scripts/config --file out/.config \
         -e KALLSYMS \
         -e KALLSYMS_ALL
+    make $BUILD_VAR olddefconfig
     rm arch/arm64/configs/temp_defconfig
 }
 
